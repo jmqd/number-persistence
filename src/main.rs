@@ -6,6 +6,9 @@ use num::bigint::*;
 use num::FromPrimitive;
 use std::str::FromStr;
 
+// TODO(mcqueenjordan): Add optimized searches to find maximums within integer ranges.
+// TODO(mcqueenjordan): Add a command for iteratively checking ranges etc.
+
 fn main() {
     let matches = App::new("number-persistence")
         .version("0.1.0")
@@ -46,8 +49,12 @@ fn calculate_multiplicative_persistence(number: BigUint) -> u32 {
     let mut persistence: u32 = 0;
     let mut working_num: BigUint = number;
 
+    // TODO(mcqueenjordan): better optimize this while condition
     while working_num >= FromStr::from_str("10").unwrap() {
         persistence += 1;
+
+        // TODO(mcqueenjordan): better optimize this logic.
+        // perhaps utilizing `to_radix_digits_le` and clever vec code
         working_num = working_num
             .to_string()
             .chars()
