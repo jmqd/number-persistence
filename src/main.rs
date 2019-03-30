@@ -7,7 +7,7 @@ use num::FromPrimitive;
 use std::str::FromStr;
 
 fn main() {
-    let matches = App::new("Rget")
+    let matches = App::new("number-persistence")
         .version("0.1.0")
         .author("Jordan McQueen <jordan@whoami.sh>")
         .about("Multiplicative persistence checker.")
