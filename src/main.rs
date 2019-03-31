@@ -3,8 +3,9 @@ extern crate num;
 
 use clap::{App, Arg, SubCommand};
 use num::bigint::*;
-use num::FromPrimitive;
+use num::Num;
 use num::One;
+use num::ToPrimitive;
 use std::str::FromStr;
 
 // TODO(mcqueenjordan): Add optimized searches to find maximums within integer ranges.
@@ -64,7 +65,7 @@ fn main() {
         "check-multiplicative" => println!(
             "{}",
             calculate_multiplicative_persistence(
-                &FromStr::from_str(
+                FromStr::from_str(
                     cli.subcommand_matches("check-multiplicative")
                         .expect("Subcommand unwrap failed")
                         .value_of("number")
@@ -96,23 +97,41 @@ fn main() {
 /// let record_num: BigUint = FromStr::from_str("277777788888899")?
 /// assert!(calculate_multiplicative_persistence(record_num) == 11)
 /// ```
-fn calculate_multiplicative_persistence(number: &BigUint) -> u32 {
-    let mut persistence: u32 = 0;
-    let mut working_num: BigUint = number.clone();
+fn calculate_multiplicative_persistence(mut number: BigUint) -> u8 {
+    let mut persistence = 0;
+    match number.to_u8() {
+        // For small numbers, don't bother with the loop unrolling.
+        Some(_small_num) => (),
 
+        // Unroll the loop twice before beginning.
+        // This allows slightly denser instruction packing.
+        None => {
+            persistence = 2;
+            number = number
+                .to_string()
+                .chars()
+                .fold(num::one(), |acc: BigUint, digit| {
+                    acc * char::to_digit(digit, 10).unwrap()
+                })
+                .to_string()
+                .chars()
+                .fold(num::one(), |acc, digit| {
+                    acc * char::to_digit(digit, 10).unwrap()
+                });
+        }
+    }
     // TODO(mcqueenjordan): better optimize this while condition
-    // TODO(mcqueenjordan): DP utilizing least-recently-used eviction
-    while working_num >= FromStr::from_str("10").unwrap() {
+    // TODO(mcqueenjordan): DP utilizing least-recently-used eviction?
+    // Tried DP -- register lookup time reduced instructions per cycle enough
+    // that it actually made the performance worse.
+    while number >= FromStr::from_str("10").unwrap() {
         persistence += 1;
 
         // TODO(mcqueenjordan): better optimize this logic.
         // perhaps utilizing `to_radix_digits_le` and clever vec code
-        working_num = working_num
-            .to_string()
-            .chars()
-            .fold(num::one(), |acc, digit| {
-                acc * BigUint::from_u32(char::to_digit(digit, 10).unwrap()).unwrap()
-            });
+        number = number.to_string().chars().fold(num::one(), |acc, digit| {
+            acc * char::to_digit(digit, 10).unwrap()
+        });
     }
     return persistence;
 }
@@ -120,11 +139,14 @@ fn calculate_multiplicative_persistence(number: &BigUint) -> u32 {
 // TODO(mcqueenjordan): Be smarter about skipping obviously bad digits.
 fn search_for_maximum_multiplicative_persistence(start: &BigUint, end: &BigUint) {
     let mut working_num: BigUint = start.clone();
-    let mut record: BigUint = BigUint::one();
-    let mut max_seen: u32 = 0;
+    let mut max_seen: u8 = 0;
 
     while working_num < *end {
-        // An optimization to skip past numbers with 0s in them.
+        // An optimization to skip past numbers with 0s in them. We replace the
+        // 0s with 1s, always making the number greater. This is a safe
+        // search-space reduction because any number with any 0-digits will
+        // immediately end persistence.
+        // TODO(mcqueenjordan): Do we need this intermediate String result?
         let digits: String = working_num
             .to_str_radix(10)
             .chars()
@@ -135,13 +157,14 @@ fn search_for_maximum_multiplicative_persistence(start: &BigUint, end: &BigUint)
             .collect();
         working_num = FromStr::from_str(&digits).unwrap();
 
-        let persistence = calculate_multiplicative_persistence(&working_num);
+        let persistence = calculate_multiplicative_persistence(working_num.clone());
         if persistence > max_seen {
             max_seen = persistence;
-            record = working_num.to_owned();
-            println!("Found a new record: {}", record);
+            println!(
+                "Found a new record: {} has a persistence of {}",
+                working_num, persistence
+            );
         }
         working_num = working_num + BigUint::one();
     }
-    println!("Overall record: {}", record);
 }
