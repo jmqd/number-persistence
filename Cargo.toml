@@ -5,5 +5,5 @@ authors = ["Jordan McQueen <jordan@whoami.sh>"]
 edition = "2018"
 
 [dependencies]
-num = "0.2"
+num = "~0.2"
 clap = "2"

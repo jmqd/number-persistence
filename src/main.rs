@@ -3,13 +3,9 @@ extern crate num;
 
 use clap::{App, Arg, SubCommand};
 use num::bigint::*;
-use num::Num;
 use num::One;
 use num::ToPrimitive;
 use std::str::FromStr;
-
-// TODO(mcqueenjordan): Add optimized searches to find maximums within integer ranges.
-// TODO(mcqueenjordan): Add a command for iteratively checking ranges etc.
 
 fn main() {
     let cli = App::new("number-persistence")
@@ -42,10 +38,22 @@ fn main() {
                         .help("Upper bound. When to stop searching."),
                 ),
         )
+        .subcommand(SubCommand::with_name("programmed-long-search"))
         .get_matches();
+
 
     // TODO(mcqueenjordan): This is verbose and ugly, but I don't immediately see a better way.
     match cli.subcommand_name().unwrap() {
+        "programmed-long-search" => {
+            let mut lower_bound: BigUint = FromStr::from_str("10").unwrap();
+
+            for _ in 0..20587u32 {
+                lower_bound = lower_bound * 10u32;
+            }
+            let upper_bound: BigUint = &lower_bound * 10u32;
+
+            search_for_new_record_multiplicative_persistence(&lower_bound, &upper_bound);
+        },
         "search" => search_for_maximum_multiplicative_persistence(
             &FromStr::from_str(
                 cli.subcommand_matches("search")
@@ -166,5 +174,45 @@ fn search_for_maximum_multiplicative_persistence(start: &BigUint, end: &BigUint)
             );
         }
         working_num = working_num + BigUint::one();
+    }
+}
+
+// Heurstic search, skipping unlikely digits.
+// Reduces search space by ~70%.
+fn search_for_new_record_multiplicative_persistence(start: &BigUint, end: &BigUint) {
+    let mut working_num: BigUint = start.clone();
+    let mut max_seen: u8 = 0;
+
+    while working_num < *end {
+        // An optimization to skip past numbers with 0s in them. We replace the
+        // 0s with 1s, always making the number greater. This is a safe
+        // search-space reduction because any number with any 0-digits will
+        // immediately end persistence.
+        // TODO(mcqueenjordan): Do we need this intermediate String result?
+        let digits: String = working_num
+            .to_str_radix(10)
+            .chars()
+            .map(|c| match c {
+                '0' => '7',
+                '1' => '2',
+                '3' => '7',
+                '4' => '7',
+                '5' => '7',
+                '6' => '7',
+                '8' => '9',
+                _ => c,
+            })
+            .collect();
+        working_num = FromStr::from_str(&digits).unwrap();
+
+        let persistence = calculate_multiplicative_persistence(working_num.clone());
+        if persistence > max_seen {
+            max_seen = persistence;
+            println!(
+                "Found a new record: {} has a persistence of {}",
+                working_num, persistence
+            );
+        }
+        working_num = working_num + BigUint::one() + BigUint::one();
     }
 }
