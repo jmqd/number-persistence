@@ -184,11 +184,9 @@ fn search_for_new_record_multiplicative_persistence(start: &BigUint, end: &BigUi
     let mut max_seen: u8 = 0;
 
     while working_num < *end {
-        // An optimization to skip past numbers with 0s in them. We replace the
-        // 0s with 1s, always making the number greater. This is a safe
-        // search-space reduction because any number with any 0-digits will
-        // immediately end persistence.
-        // TODO(mcqueenjordan): Do we need this intermediate String result?
+        // An optimization to skip past a lot of candidates. This is an unproven
+        // conjecture, so it is not guaranteed that the search space was exhaustively
+        // searched. But we're going for the gold here, so we're playing a numbers game.
         let digits: String = working_num
             .to_str_radix(10)
             .chars()
