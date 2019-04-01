@@ -1,10 +1,14 @@
 extern crate clap;
+extern crate hashbrown;
 extern crate num;
 
 use clap::{App, Arg, SubCommand};
+use hashbrown::HashMap;
 use num::bigint::*;
 use num::One;
 use num::ToPrimitive;
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::str::FromStr;
 
 fn main() {
@@ -41,7 +45,6 @@ fn main() {
         .subcommand(SubCommand::with_name("programmed-long-search"))
         .get_matches();
 
-
     // TODO(mcqueenjordan): This is verbose and ugly, but I don't immediately see a better way.
     match cli.subcommand_name().unwrap() {
         "programmed-long-search" => {
@@ -53,7 +56,7 @@ fn main() {
             let upper_bound: BigUint = &lower_bound * 10u32;
 
             search_for_new_record_multiplicative_persistence(&lower_bound, &upper_bound);
-        },
+        }
         "search" => search_for_maximum_multiplicative_persistence(
             &FromStr::from_str(
                 cli.subcommand_matches("search")
@@ -129,9 +132,6 @@ fn calculate_multiplicative_persistence(mut number: BigUint) -> u8 {
         }
     }
     // TODO(mcqueenjordan): better optimize this while condition
-    // TODO(mcqueenjordan): DP utilizing least-recently-used eviction?
-    // Tried DP -- register lookup time reduced instructions per cycle enough
-    // that it actually made the performance worse.
     while number >= FromStr::from_str("10").unwrap() {
         persistence += 1;
 
@@ -142,6 +142,59 @@ fn calculate_multiplicative_persistence(mut number: BigUint) -> u8 {
         });
     }
     return persistence;
+}
+
+fn calculate_multiplicative_persistence_dp(
+    mut number: BigUint,
+    cache: &mut HashMap<String, BigUint>,
+) -> u8 {
+    let mut persistence = 0;
+    // TODO(mcqueenjordan): better optimize this while condition
+    while number >= FromStr::from_str("10").unwrap() {
+        number = divide_and_conquer_digit_multiplication(number.to_string(), cache);
+        persistence += 1;
+    }
+    return persistence;
+}
+
+// A recursive dynamic-programming approach to the product of a number's digits.
+fn divide_and_conquer_digit_multiplication(
+    digits: String,
+    cache: &mut HashMap<String, BigUint>,
+) -> BigUint {
+    match digits.len() {
+        // Base cases. For 0 and 1, we return those numbers.
+        // For small lengths, we perform the calculation directly, as it is faster than
+        // waiting for a register LOAD instruction.
+        0 => return BigUint::one(),
+        1 => return FromStr::from_str(&digits).unwrap(),
+
+        // Between digit lengths of 2 and 8 inclusive, perform the calculation inline.
+        2...8 => {
+            return digits.chars().fold(num::one(), |acc, digit| {
+                acc * char::to_digit(digit, 10).unwrap()
+            });
+        }
+
+        // For digits with longer lengths, recursively split the digits in half
+        // and merge the results by multiplication, caching intermediate results
+        // and the final result in our DP cache.
+        _ => match cache.get(&digits) {
+            Some(big_num) => return big_num.clone(),
+            None => {
+                let (lhs, rhs) = digits.split_at(digits.len() / 2);
+                let lhs_num = divide_and_conquer_digit_multiplication(lhs.to_string(), cache);
+                let rhs_num = divide_and_conquer_digit_multiplication(rhs.to_string(), cache);
+                cache.insert(lhs.to_string(), lhs_num);
+                cache.insert(rhs.to_string(), rhs_num);
+                cache.insert(
+                    digits.clone(),
+                    cache.get(lhs).unwrap() * cache.get(rhs).unwrap(),
+                );
+                return cache.get(&digits).unwrap().clone();
+            }
+        },
+    }
 }
 
 // TODO(mcqueenjordan): Be smarter about skipping obviously bad digits.
@@ -182,6 +235,7 @@ fn search_for_maximum_multiplicative_persistence(start: &BigUint, end: &BigUint)
 fn search_for_new_record_multiplicative_persistence(start: &BigUint, end: &BigUint) {
     let mut working_num: BigUint = start.clone();
     let mut max_seen: u8 = 0;
+    let mut cache: HashMap<String, BigUint> = HashMap::with_capacity(102048);
 
     while working_num < *end {
         // An optimization to skip past a lot of candidates. This is an unproven
@@ -203,13 +257,17 @@ fn search_for_new_record_multiplicative_persistence(start: &BigUint, end: &BigUi
             .collect();
         working_num = FromStr::from_str(&digits).unwrap();
 
-        let persistence = calculate_multiplicative_persistence(working_num.clone());
+        let persistence = calculate_multiplicative_persistence_dp(working_num.clone(), &mut cache);
         if persistence > max_seen {
             max_seen = persistence;
-            println!(
-                "Found a new record: {} has a persistence of {}",
-                working_num, persistence
-            );
+            let mut file = OpenOptions::new()
+                .append(true)
+                .create(true)
+                .open("/tmp/multiplicative-persistence-data.csv")
+                .unwrap();
+            if let Err(e) = writeln!(file, "{},{}", working_num, persistence) {
+                eprintln!("Couldn't write to the file: {}", e);
+            }
         }
         working_num = working_num + BigUint::one() + BigUint::one();
     }
