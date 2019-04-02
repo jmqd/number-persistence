@@ -1,12 +1,10 @@
 extern crate clap;
-extern crate hashbrown;
 extern crate num;
 
 use clap::{App, Arg, SubCommand};
-use hashbrown::HashMap;
 use num::bigint::*;
 use num::One;
-use num::ToPrimitive;
+use num::Zero;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::str::FromStr;
@@ -14,7 +12,6 @@ use std::str::FromStr;
 fn main() {
     let cli = App::new("number-persistence")
         .version("0.1.0")
-        .author("Jordan McQueen <jordan@whoami.sh>")
         .about("Multiplicative persistence checker.")
         .subcommand(
             SubCommand::with_name("check-multiplicative").arg(
@@ -45,16 +42,20 @@ fn main() {
         .subcommand(SubCommand::with_name("programmed-long-search"))
         .get_matches();
 
-    // TODO(mcqueenjordan): This is verbose and ugly, but I don't immediately see a better way.
+    // TODO: This is verbose and ugly, but I don't immediately see a better way.
     match cli.subcommand_name().unwrap() {
         "programmed-long-search" => {
             let mut lower_bound: BigUint = FromStr::from_str("10").unwrap();
 
-            for _ in 0..20587u32 {
+            // The currently known theoretical lower bound is ~2.67 * 10^30000.
+            for _ in 0..33300u32 {
                 lower_bound = lower_bound * 10u32;
             }
-            let upper_bound: BigUint = &lower_bound * 10u32;
 
+            let coeff: u32 = 3;
+
+            let upper_bound: BigUint = &lower_bound * 10u32 * coeff;
+            println!("Finished calculating the lower bound; starting search");
             search_for_new_record_multiplicative_persistence(&lower_bound, &upper_bound);
         }
         "search" => search_for_maximum_multiplicative_persistence(
@@ -110,94 +111,29 @@ fn main() {
 /// ```
 fn calculate_multiplicative_persistence(mut number: BigUint) -> u8 {
     let mut persistence = 0;
-    match number.to_u8() {
-        // For small numbers, don't bother with the loop unrolling.
-        Some(_small_num) => (),
+    // Standard 2018 way to get a BigUint 10
+    let ten = BigUint::from(10u32);
 
-        // Unroll the loop twice before beginning.
-        // This allows slightly denser instruction packing.
-        None => {
-            persistence = 2;
-            number = number
-                .to_string()
-                .chars()
-                .fold(num::one(), |acc: BigUint, digit| {
-                    acc * char::to_digit(digit, 10).unwrap()
-                })
-                .to_string()
-                .chars()
-                .fold(num::one(), |acc, digit| {
-                    acc * char::to_digit(digit, 10).unwrap()
-                });
+    // Loop while number is >= 10
+    while number >= ten {
+        persistence += 1;
+        let digits = number.to_radix_le(10);
+
+        // PERF: If any digit is 0, the product is immediately 0.
+        // This short-circuits the multiplying massive numbers.
+        if digits.contains(&0) {
+            number = BigUint::zero();
+        } else {
+            number = digits
+                .iter()
+                .fold(BigUint::one(), |acc, &digit| acc * digit as u32);
         }
     }
-    // TODO(mcqueenjordan): better optimize this while condition
-    while number >= FromStr::from_str("10").unwrap() {
-        persistence += 1;
 
-        // TODO(mcqueenjordan): better optimize this logic.
-        // perhaps utilizing `to_radix_digits_le` and clever vec code
-        number = number.to_string().chars().fold(num::one(), |acc, digit| {
-            acc * char::to_digit(digit, 10).unwrap()
-        });
-    }
-    return persistence;
+    persistence
 }
 
-fn calculate_multiplicative_persistence_dp(
-    mut number: BigUint,
-    cache: &mut HashMap<String, BigUint>,
-) -> u8 {
-    let mut persistence = 0;
-    // TODO(mcqueenjordan): better optimize this while condition
-    while number >= FromStr::from_str("10").unwrap() {
-        number = divide_and_conquer_digit_multiplication(number.to_string(), cache);
-        persistence += 1;
-    }
-    return persistence;
-}
-
-// A recursive dynamic-programming approach to the product of a number's digits.
-fn divide_and_conquer_digit_multiplication(
-    digits: String,
-    cache: &mut HashMap<String, BigUint>,
-) -> BigUint {
-    match digits.len() {
-        // Base cases. For 0 and 1, we return those numbers.
-        // For small lengths, we perform the calculation directly, as it is faster than
-        // waiting for a register LOAD instruction.
-        0 => return BigUint::one(),
-        1 => return FromStr::from_str(&digits).unwrap(),
-
-        // Between digit lengths of 2 and 8 inclusive, perform the calculation inline.
-        2...8 => {
-            return digits.chars().fold(num::one(), |acc, digit| {
-                acc * char::to_digit(digit, 10).unwrap()
-            });
-        }
-
-        // For digits with longer lengths, recursively split the digits in half
-        // and merge the results by multiplication, caching intermediate results
-        // and the final result in our DP cache.
-        _ => match cache.get(&digits) {
-            Some(big_num) => return big_num.clone(),
-            None => {
-                let (lhs, rhs) = digits.split_at(digits.len() / 2);
-                let lhs_num = divide_and_conquer_digit_multiplication(lhs.to_string(), cache);
-                let rhs_num = divide_and_conquer_digit_multiplication(rhs.to_string(), cache);
-                cache.insert(lhs.to_string(), lhs_num);
-                cache.insert(rhs.to_string(), rhs_num);
-                cache.insert(
-                    digits.clone(),
-                    cache.get(lhs).unwrap() * cache.get(rhs).unwrap(),
-                );
-                return cache.get(&digits).unwrap().clone();
-            }
-        },
-    }
-}
-
-// TODO(mcqueenjordan): Be smarter about skipping obviously bad digits.
+// TODO: Be smarter about skipping obviously bad digits.
 fn search_for_maximum_multiplicative_persistence(start: &BigUint, end: &BigUint) {
     let mut working_num: BigUint = start.clone();
     let mut max_seen: u8 = 0;
@@ -207,7 +143,7 @@ fn search_for_maximum_multiplicative_persistence(start: &BigUint, end: &BigUint)
         // 0s with 1s, always making the number greater. This is a safe
         // search-space reduction because any number with any 0-digits will
         // immediately end persistence.
-        // TODO(mcqueenjordan): Do we need this intermediate String result?
+        // PERF: String allocation still present here, possible to avoid.
         let digits: String = working_num
             .to_str_radix(10)
             .chars()
@@ -226,7 +162,8 @@ fn search_for_maximum_multiplicative_persistence(start: &BigUint, end: &BigUint)
                 working_num, persistence
             );
         }
-        working_num = working_num + BigUint::one();
+
+        working_num = working_num + BigUint::one() + BigUint::one();
     }
 }
 
@@ -235,7 +172,6 @@ fn search_for_maximum_multiplicative_persistence(start: &BigUint, end: &BigUint)
 fn search_for_new_record_multiplicative_persistence(start: &BigUint, end: &BigUint) {
     let mut working_num: BigUint = start.clone();
     let mut max_seen: u8 = 0;
-    let mut cache: HashMap<String, BigUint> = HashMap::with_capacity(102048);
 
     while working_num < *end {
         // An optimization to skip past a lot of candidates. This is an unproven
@@ -257,7 +193,7 @@ fn search_for_new_record_multiplicative_persistence(start: &BigUint, end: &BigUi
             .collect();
         working_num = FromStr::from_str(&digits).unwrap();
 
-        let persistence = calculate_multiplicative_persistence_dp(working_num.clone(), &mut cache);
+        let persistence = calculate_multiplicative_persistence(working_num.clone());
         if persistence > max_seen {
             max_seen = persistence;
             let mut file = OpenOptions::new()
@@ -270,5 +206,6 @@ fn search_for_new_record_multiplicative_persistence(start: &BigUint, end: &BigUi
             }
         }
         working_num = working_num + BigUint::one() + BigUint::one();
+        println!("Checked one; going next");
     }
 }

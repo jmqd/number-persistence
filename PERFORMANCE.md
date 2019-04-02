@@ -35,21 +35,22 @@ Overall record: 26888999
       30.165656130 seconds time elapsed
 ```
 
-## Implemented with dynamic programming
+## Trial with dynamic programming
 
-Showed slower runtimes -- due to last-level cache misses and register LOAD times
-preventing hitting high instructions per cycle. Given that each individual unit of
-work is expected to be considerably cheap, DP is likely a bad fit for this problem.
-Knew that going in, but worth testing. Workloads that took ~294 seconds w/o DP were
-taking ~330 seconds with DP. Clearly we saved ourselves some work, but not much.
+Basically, showed slower runtimes. Last-level cache misses and register LOAD
+times were high. Ultimately, for this problem, DP is a bad fit because the tree
+of multiplication subproblems do not sufficiently overlap. Fundamentally, just
+doing the math on the CPU is faster than the hash lookups.
 
-Reducing the search space as cleverly as possible will be the best efficiency improvement.
-As for performance, we just need to pipeline as fast as possible. Probably do some loop
-unrolling and reduce unnecessary copies and intermediate results is the best.
+Reducing the search space as cleverly as possible will be the best efficiency
+improvement. As for performance, we just need to pipeline as fast as possible.
+Probably do some loop unrolling and reduce unnecessary copies and intermediate
+results is the best.
 
 ## Removed unnecessary intermediate BigUint in fold accumulator
 
-Also used u8 instead of u32 where possible to pack more bits into the cache lines.
+Also used u8 instead of u32 where possible to pack more bits into the cache
+lines.
 
 Got ~2x speedup.
 
